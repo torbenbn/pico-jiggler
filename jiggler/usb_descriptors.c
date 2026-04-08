@@ -25,6 +25,7 @@
 
 #include "usb_descriptors.h"
 #include "tusb.h"
+#include "pico/unique_id.h"
 
 /* A combination of interfaces must have a unique product id, since PC will save
  * device driver after the first plug. Same VID/PID with different interface e.g
@@ -33,11 +34,6 @@
  * Auto ProductID layout's Bitmap:
  *   [MSB]         HID | MSC | CDC          [LSB]
  */
-#define _PID_MAP(itf, n) ((CFG_TUD_##itf) << (n))
-#define USB_PID                                                                \
-  (0x4000 | _PID_MAP(CDC, 0) | _PID_MAP(MSC, 1) | _PID_MAP(HID, 2) |           \
-   _PID_MAP(MIDI, 3) | _PID_MAP(VENDOR, 4))
-
 //--------------------------------------------------------------------+
 // Device Descriptors
 //--------------------------------------------------------------------+
@@ -50,9 +46,9 @@ tusb_desc_device_t const desc_device = {.bLength = sizeof(tusb_desc_device_t),
                                         .bMaxPacketSize0 =
                                             CFG_TUD_ENDPOINT0_SIZE,
 
-                                        .idVendor = 0xCafe,
-                                        .idProduct = USB_PID,
-                                        .bcdDevice = 0x0100,
+                                        .idVendor = 0x046D,
+                                        .idProduct = 0xC06A,
+                                        .bcdDevice = 0x5400,
 
                                         .iManufacturer = 0x01,
                                         .iProduct = 0x02,
@@ -76,7 +72,10 @@ uint8_t const desc_hid_report[] = {
 // Invoked when received GET HID REPORT DESCRIPTOR
 // Application return pointer to descriptor
 // Descriptor contents must exist long enough for transfer to complete
-uint8_t const *tud_hid_descriptor_report_cb(void) { return desc_hid_report; }
+uint8_t const *tud_hid_descriptor_report_cb(uint8_t instance) {
+  (void)instance;
+  return desc_hid_report;
+}
 
 //--------------------------------------------------------------------+
 // Configuration Descriptor
@@ -96,7 +95,7 @@ uint8_t const desc_configuration[] = {
 
     // Interface number, string index, protocol, report descriptor len, EP In &
     // Out address, size & polling interval
-    TUD_HID_DESCRIPTOR(ITF_NUM_HID, 0, HID_PROTOCOL_NONE,
+    TUD_HID_DESCRIPTOR(ITF_NUM_HID, 0, 0,
                        sizeof(desc_hid_report), EPNUM_HID, CFG_TUD_HID_BUFSIZE,
                        10)};
 
@@ -115,10 +114,12 @@ uint8_t const *tud_descriptor_configuration_cb(uint8_t index) {
 // array of pointer to string descriptors
 char const *string_desc_arr[] = {
     (const char[]){0x09, 0x04}, // 0: is supported language is English (0x0409)
-    "Raspberry Pi",             // 1: Manufacturer
-    "Mouse",                    // 2: Product
-    "123456",                   // 3: Serials, should use chip ID
+    "Logitech",                 // 1: Manufacturer
+    "USB Optical Mouse",        // 2: Product
+    NULL,                       // 3: Serial, generated from chip ID at runtime
 };
+
+static char serial_str[PICO_UNIQUE_BOARD_ID_SIZE_BYTES * 2 + 1];
 
 static uint16_t _desc_str[32];
 
@@ -139,7 +140,10 @@ uint16_t const *tud_descriptor_string_cb(uint8_t index, uint16_t langid) {
     if (!(index < sizeof(string_desc_arr) / sizeof(string_desc_arr[0])))
       return NULL;
 
-    const char *str = string_desc_arr[index];
+    if (index == 3 && serial_str[0] == '\0')
+      pico_get_unique_board_id_string(serial_str, sizeof(serial_str));
+
+    const char *str = (index == 3) ? serial_str : string_desc_arr[index];
 
     // Cap at max char
     chr_count = strlen(str);
